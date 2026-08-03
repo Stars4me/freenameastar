@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>StarNamer — Explore &amp; Name the Night Sky</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#000; font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color:#eae6ff; }
+  #sky { position:fixed; inset:0; background: radial-gradient(ellipse at 50% 20%, #10102a 0%, #05050f 55%, #000 100%); cursor: grab; touch-action:none; }
+  #sky.dragging { cursor: grabbing; }
+
+  header { position:fixed; top:0; left:0; right:0; z-index:20; display:flex; align-items:center; gap:10px; padding:10px 14px; background:linear-gradient(180deg, rgba(10,8,30,0.92), rgba(10,8,30,0.55)); backdrop-filter: blur(6px); border-bottom:1px solid rgba(180,160,255,0.15); flex-wrap:wrap; }
+  .brand { display:flex; align-items:center; gap:8px; font-weight:700; font-size:18px; letter-spacing:0.3px; white-space:nowrap; }
+  .brand span.dot { color:#c9a9e0; }
+  #searchWrap { position:relative; flex:1; min-width:150px; max-width:320px; }
+  #searchInput { width:100%; padding:9px 12px; border-radius:20px; border:1px solid rgba(180,160,255,0.3); background:rgba(255,255,255,0.06); color:#fff; font-size:14px; outline:none; }
+  #searchInput:focus { border-color:#c9a9e0; }
+  #searchResults { position:absolute; top:110%; left:0; right:0; background:#14122c; border:1px solid rgba(180,160,255,0.25); border-radius:10px; max-height:220px; overflow-y:auto; display:none; z-index:30; }
+  #searchResults div { padding:8px 12px; font-size:13px; cursor:pointer; border-bottom:1px solid rgba(255,255,255,0.05); }
+  #searchResults div:hover { background:rgba(201,169,224,0.18); }
+  .btn { padding:9px 14px; border-radius:20px; border:1px solid rgba(180,160,255,0.35); background:rgba(255,255,255,0.06); color:#eae6ff; font-size:13px; cursor:pointer; white-space:nowrap; transition:background .15s; }
+  .btn:hover { background:rgba(201,169,224,0.22); }
+  .btn.primary { background:#c9a9e0; color:#221833; border-color:#c9a9e0; font-weight:600; }
+  .btn.primary:hover { background:#d8bdf0; }
+  .spacer { flex:1; }
+
+  #zoomCtl { position:fixed; right:16px; bottom:16px; z-index:15; display:flex; flex-direction:column; gap:6px; }
+  #zoomCtl button { width:38px; height:38px; border-radius:50%; border:1px solid rgba(180,160,255,0.35); background:rgba(20,18,44,0.85); color:#fff; font-size:20px; cursor:pointer; }
+  #zoomCtl button:hover { background:rgba(201,169,224,0.3); }
+
+  #hint { position:fixed; left:16px; bottom:16px; z-index:15; font-size:12px; color:#a89fcf; background:rgba(10,8,30,0.55); padding:6px 10px; border-radius:8px; max-width:260px; }
+
+  .panel { position:fixed; z-index:40; background:#14122c; border:1px solid rgba(180,160,255,0.3); border-radius:14px; box-shadow:0 10px 40px rgba(0,0,0,0.5); color:#eae6ff; }
+  #infoPanel { right:16px; top:74px; width:320px; max-width:calc(100vw - 32px); padding:18px; display:none; max-height:calc(100vh - 110px); overflow-y:auto; }
+  #infoPanel h2 { margin:0 0 4px; font-size:20px; }
+  #infoPanel .con { color:#c9a9e0; font-size:13px; margin-bottom:10px; }
+  #infoPanel table { width:100%; font-size:13px; border-collapse:collapse; margin-bottom:12px; }
+  #infoPanel table td { padding:3px 0; }
+  #infoPanel table td:first-child { color:#a89fcf; width:110px; }
+  #infoPanel .named-badge { background:rgba(201,169,224,0.18); border:1px solid rgba(201,169,224,0.4); border-radius:10px; padding:10px; margin-bottom:12px; font-size:13px; }
+  #infoPanel .named-badge b { color:#e9d8ff; }
+  #infoPanel input, #infoPanel textarea { width:100%; padding:8px 10px; margin-bottom:8px; border-radius:8px; border:1px solid rgba(180,160,255,0.3); background:rgba(255,255,255,0.06); color:#fff; font-size:13px; font-family:inherit; outline:none; }
+  #infoPanel textarea { resize:vertical; min-height:50px; }
+  #infoPanel .row { display:flex; gap:8px; flex-wrap:wrap; }
+  #closeInfo { position:absolute; top:10px; right:12px; background:none; border:none; color:#a89fcf; font-size:18px; cursor:pointer; }
+
+  #listPanel { top:0; right:0; bottom:0; width:340px; max-width:88vw; transform:translateX(100%); transition:transform .25s ease; padding:18px; overflow-y:auto; border-radius:0; }
+  #listPanel.open { transform:translateX(0); }
+  #listPanel h2 { margin-top:0; }
+  .starRow { padding:10px; border-radius:10px; background:rgba(255,255,255,0.04); margin-bottom:8px; }
+  .starRow .cn { font-weight:700; font-size:14px; }
+  .starRow .rn { font-size:12px; color:#a89fcf; margin-bottom:6px; }
+  .starRow .actions { display:flex; gap:6px; flex-wrap:wrap; }
+  .starRow .actions button { font-size:11px; padding:5px 9px; }
+  #emptyList { color:#a89fcf; font-size:13px; }
+
+  #helpModal, #overlay { position:fixed; inset:0; z-index:50; display:none; align-items:center; justify-content:center; }
+  #overlay { background:rgba(0,0,0,0.6); }
+  #helpModal .box { background:#14122c; border:1px solid rgba(180,160,255,0.3); border-radius:16px; padding:26px; max-width:480px; width:90%; max-height:80vh; overflow-y:auto; }
+  #helpModal h2 { margin-top:0; }
+  #helpModal p { font-size:14px; line-height:1.6; color:#d8d2f0; }
+  #helpModal .disclaimer { margin-top:14px; padding:10px; border-radius:8px; background:rgba(255,180,80,0.1); border:1px solid rgba(255,180,80,0.35); font-size:12px; color:#ffd9a0; }
+
+  #toast { position:fixed; left:50%; top:80px; transform:translateX(-50%) translateY(-20px); z-index:60; background:#c9a9e0; color:#221833; font-weight:600; padding:10px 18px; border-radius:20px; font-size:13px; opacity:0; transition:all .3s ease; pointer-events:none; }
+  #toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+
+  @media (max-width:560px){
+    .brand{font-size:16px;}
+    #infoPanel{ left:8px; right:8px; width:auto; top:70px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">⭐ Star<span class="dot">Namer</span></div>
+  <div id="searchWrap">
+    <input id="searchInput" type="text" placeholder="Search a star or constellation…" autocomplete="off">
+    <div id="searchResults"></div>
+  </div>
+  <div class="spacer"></div>
+  <button class="btn" id="myStarsBtn">My Named Stars</button>
+  <button class="btn" id="helpBtn">How it works</button>
+</header>
+
+<canvas id="sky"></canvas>
+
+<div id="zoomCtl">
+  <button id="zoomIn">+</button>
+  <button id="zoomOut">−</button>
+</div>
+<div id="hint">Drag to pan · Scroll or pinch to zoom · Click a bright star to name it</div>
+
+<div class="panel" id="infoPanel">
+  <button id="closeInfo">✕</button>
+  <div id="infoContent"></div>
+</div>
+
+<div class="panel" id="listPanel">
+  <button id="closeList" style="float:right;background:none;border:none;color:#a89fcf;font-size:18px;cursor:pointer;">✕</button>
+  <h2>My Named Stars</h2>
+  <div id="listContent"></div>
+  <div style="margin-top:14px; display:flex; gap:8px; flex-wrap:wrap;">
+    <button class="btn" id="exportBtn">Export (.json)</button>
+    <button class="btn" id="importBtn">Import</button>
+    <input type="file" id="importFile" accept=".json" style="display:none;">
+  </div>
+</div>
+
+<div id="overlay"></div>
+<div id="helpModal">
+  <div class="box">
+    <h2>How StarNamer works</h2>
+    <p>This map shows roughly 100 real, bright stars at their true position in the sky (right ascension &amp; declination), plus a scattering of faint background stars for atmosphere. Drag to pan across the sky and scroll (or pinch) to zoom in, just like an old-school map.</p>
+    <p>Click on any labelled star to see its real astronomical name, distance and constellation. From there you can give it a personal, symbolic name — a dedication for a birthday, anniversary or memorial — and generate a printable keepsake certificate.</p>
+    <p>Your named stars are saved privately in this browser (nothing is uploaded anywhere). Use the Export button to save a backup file, or Import it later or on another device.</p>
+    <div class="disclaimer">This naming is symbolic and for fun/sentimental purposes only. It does not change the star's official scientific designation — those are governed exclusively by the International Astronomical Union (IAU).</div>
+    <div style="text-align:right; margin-top:16px;"><button class="btn primary" id="closeHelp">Got it</button></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ---------- Real bright star catalog: [name, RA(h), Dec(deg), mag, distance(ly), constellation] ----------
+const STARS = [
+["Sirius",6.752,-16.716,-1.46,8.6,"Canis Major"],["Canopus",6.399,-52.696,-0.74,310,"Carina"],
+["Rigil Kentaurus",14.660,-60.835,-0.27,4.37,"Centaurus"],["Arcturus",14.261,19.182,-0.05,37,"Boötes"],
+["Vega",18.615,38.784,0.03,25,"Lyra"],["Capella",5.278,45.998,0.08,43,"Auriga"],
+["Rigel",5.242,-8.202,0.13,860,"Orion"],["Procyon",7.655,5.225,0.34,11.5,"Canis Minor"],
+["Achernar",1.628,-57.237,0.46,139,"Eridanus"],["Betelgeuse",5.919,7.407,0.50,548,"Orion"],
+["Hadar",14.064,-60.373,0.61,390,"Centaurus"],["Altair",19.846,8.868,0.76,16.7,"Aquila"],
+["Acrux",12.443,-63.099,0.77,320,"Crux"],["Aldebaran",4.599,16.509,0.85,65,"Taurus"],
+["Spica",13.420,-11.161,0.98,250,"Virgo"],["Antares",16.490,-26.432,1.06,550,"Scorpius"],
+["Pollux",7.755,28.026,1.14,34,"Gemini"],["Fomalhaut",22.961,-29.622,1.16,25,"Piscis Austrinus"],
+["Deneb",20.690,45.280,1.25,2600,"Cygnus"],["Mimosa",12.795,-59.689,1.25,280,"Crux"],
+["Regulus",10.139,11.967,1.35,79,"Leo"],["Adhara",6.977,-28.972,1.50,430,"Canis Major"],
+["Castor",7.577,31.888,1.57,51,"Gemini"],["Shaula",17.560,-37.104,1.62,570,"Scorpius"],
+["Bellatrix",5.418,6.350,1.64,250,"Orion"],["Elnath",5.438,28.608,1.65,130,"Taurus"],
+["Miaplacidus",9.220,-69.717,1.67,113,"Carina"],["Alnilam",5.604,-1.202,1.69,2000,"Orion"],
+["Alnair",22.137,-46.961,1.73,101,"Grus"],["Alnitak",5.679,-1.943,1.77,1260,"Orion"],
+["Alioth",12.900,55.960,1.76,81,"Ursa Major"],["Dubhe",11.062,61.751,1.79,123,"Ursa Major"],
+["Mirfak",3.405,49.861,1.79,590,"Perseus"],["Wezen",7.140,-26.393,1.83,1800,"Canis Major"],
+["Sargas",17.622,-42.998,1.86,270,"Scorpius"],["Kaus Australis",18.403,-34.385,1.85,143,"Sagittarius"],
+["Avior",8.375,-59.510,1.86,630,"Carina"],["Alkaid",13.792,49.313,1.85,101,"Ursa Major"],
+["Menkalinan",5.992,44.947,1.90,82,"Auriga"],["Atria",16.811,-69.028,1.91,391,"Triangulum Australe"],
+["Alhena",6.628,16.399,1.93,105,"Gemini"],["Peacock",20.427,-56.735,1.94,183,"Pavo"],
+["Mirzam",6.378,-17.956,1.98,500,"Canis Major"],["Polaris",2.530,89.264,1.98,433,"Ursa Minor"],
+["Alphard",9.460,-8.659,1.99,177,"Hydra"],["Hamal",2.119,23.462,2.00,66,"Aries"],
+["Diphda",0.727,-17.987,2.04,96,"Cetus"],["Nunki",18.921,-26.297,2.05,228,"Sagittarius"],
+["Mizar",13.398,54.925,2.04,78,"Ursa Major"],["Kochab",14.845,74.155,2.08,131,"Ursa Minor"],
+["Saiph",5.796,-9.670,2.09,650,"Orion"],["Denebola",11.818,14.572,2.14,36,"Leo"],
+["Algol",3.136,40.956,2.12,93,"Perseus"],["Muhlifain",12.692,-48.960,2.20,130,"Centaurus"],
+["Aspidiske",9.285,-59.275,2.21,690,"Carina"],["Suhail",9.133,-43.433,2.23,545,"Vela"],
+["Alphecca",15.578,26.715,2.23,75,"Corona Borealis"],["Mintaka",5.533,-0.299,2.25,900,"Orion"],
+["Sadr",20.371,40.257,2.23,1800,"Cygnus"],["Eltanin",17.943,51.489,2.23,154,"Draco"],
+["Schedar",0.675,56.537,2.24,228,"Cassiopeia"],["Naos",8.059,-40.003,2.25,1080,"Puppis"],
+["Almach",2.065,42.330,2.26,350,"Andromeda"],["Caph",0.153,59.150,2.27,55,"Cassiopeia"],
+["Izar",14.749,27.074,2.35,210,"Boötes"],["Dschubba",16.005,-22.622,2.29,400,"Scorpius"],
+["Merak",11.031,56.382,2.34,79,"Ursa Major"],["Ankaa",0.438,-42.306,2.40,77,"Phoenix"],
+["Girtab",17.708,-39.030,2.39,470,"Scorpius"],["Enif",21.736,9.875,2.38,690,"Pegasus"],
+["Scheat",23.063,28.083,2.42,196,"Pegasus"],["Sabik",17.173,-15.725,2.43,88,"Ophiuchus"],
+["Phecda",11.897,53.695,2.44,84,"Ursa Major"],["Aludra",7.402,-29.303,2.45,2000,"Canis Major"],
+["Markeb",9.371,-55.011,2.47,570,"Vela"],["Markab",23.079,15.205,2.49,133,"Pegasus"],
+["Aljanah",20.770,33.970,2.46,72,"Cygnus"],["Acrab",16.090,-19.805,2.56,400,"Scorpius"],
+["Alnasl",18.297,-30.424,2.98,96,"Sagittarius"],["Zosma",11.235,20.524,2.56,58,"Leo"],
+["Ruchbah",1.430,60.235,2.68,99,"Cassiopeia"],["Sadalsuud",21.526,-5.571,2.87,540,"Aquarius"],
+["Sadalmelik",22.096,-0.320,2.95,520,"Aquarius"],["Rasalhague",17.582,12.560,2.08,47,"Ophiuchus"],
+["Tarazed",19.771,10.613,2.72,460,"Aquila"],["Cor Caroli",12.934,38.318,2.90,110,"Canes Venatici"],
+["Alpheratz",0.140,29.091,2.07,97,"Andromeda"],["Mirach",1.162,35.621,2.07,200,"Andromeda"],
+["Menkar",3.038,4.090,2.54,220,"Cetus"],["Kaus Media",18.350,-29.828,2.70,305,"Sagittarius"],
+["Zubenelgenubi",14.848,-16.042,2.75,77,"Libra"],["Zubeneschamali",15.283,-9.383,2.61,185,"Libra"],
+["Unukalhai",15.738,6.426,2.65,74,"Serpens"],["Alderamin",21.310,62.585,2.45,49,"Cepheus"],
+["Rastaban",17.507,52.301,2.79,380,"Draco"],["Gienah",12.263,-17.542,2.59,165,"Corvus"],
+["Kraz",12.577,-23.397,2.65,146,"Corvus"],["Alcyone",3.791,24.105,2.87,440,"Taurus"],
+["Segin",1.906,63.670,3.35,440,"Cassiopeia"],["Mira",2.322,-2.978,3.04,300,"Cetus"]
+];
+
+// ---------- Decorative faint background stars (not clickable, purely atmospheric) ----------
+function seeded(seed){ let s = seed; return function(){ s = (s*9301+49297)%233280; return s/233280; }; }
+const rnd = seeded(42);
+const BG_STARS = [];
+for(let i=0;i<900;i++){
+  BG_STARS.push({ ra: rnd()*24, dec: rnd()*180-90, mag: 3.5+rnd()*3 });
+}
+
+// ---------- Named stars storage ----------
+const STORE_KEY = 'starnamer_named_v1';
+function loadNamed(){ try{ return JSON.parse(localStorage.getItem(STORE_KEY)) || {}; }catch(e){ return {}; } }
+function saveNamed(obj){ localStorage.setItem(STORE_KEY, JSON.stringify(obj)); }
+let named = loadNamed();
+
+// ---------- Canvas / view state ----------
+const canvas = document.getElementById('sky');
+const ctx = canvas.getContext('2d');
+let W, H, DPR;
+function resize(){
+  DPR = window.devicePixelRatio || 1;
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W*DPR; canvas.height = H*DPR;
+  canvas.style.width = W+'px'; canvas.style.height = H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  draw();
+}
+window.addEventListener('resize', resize);
+
+const view = { ra: 12, dec: 20, scale: 9 }; // ra in hours(0-24)->deg internally, scale = px per degree
+
+function raDegOf(s){ return s*15; }
+function project(raHours, dec){
+  const worldX = raDegOf(raHours);
+  const centerX = raDegOf(view.ra);
+  let dx = worldX - centerX;
+  dx -= 360*Math.round(dx/360);
+  const dy = view.dec - dec;
+  return { x: W/2 + dx*view.scale, y: H/2 + dy*view.scale };
+}
+function unproject(px, py){
+  const dx = (px - W/2)/view.scale;
+  const dy = (py - H/2)/view.scale;
+  let raDeg = raDegOf(view.ra) + dx;
+  raDeg = ((raDeg%360)+360)%360;
+  const dec = view.dec - dy;
+  return { ra: raDeg/15, dec: dec };
+}
+
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  // background faint stars
+  ctx.save();
+  BG_STARS.forEach(s=>{
+    const p = project(s.ra, s.dec);
+    if(p.x<-10||p.x>W+10||p.y<-10||p.y>H+10) return;
+    const r = Math.max(0.3, (5.5-s.mag)*0.4);
+    ctx.beginPath();
+    ctx.fillStyle = 'rgba(255,255,255,'+Math.max(0.08,(5.5-s.mag)/6)+')';
+    ctx.arc(p.x,p.y,r,0,Math.PI*2);
+    ctx.fill();
+  });
+  ctx.restore();
+
+  // real named-catalog stars
+  const showLabels = view.scale > 4;
+  STARS.forEach(st=>{
+    const [nm,ra,dec,mag,dist,con] = st;
+    const p = project(ra,dec);
+    if(p.x<-40||p.x>W+40||p.y<-40||p.y>H+40) return;
+    const r = Math.max(1.4,(2.2-mag)*1.6+2.5);
+    const rec = named[nm];
+    ctx.save();
+    ctx.shadowColor = rec ? '#e9c9ff' : '#bcd7ff';
+    ctx.shadowBlur = rec ? 14 : 8;
+    ctx.beginPath();
+    ctx.fillStyle = rec ? '#e9c9ff' : '#ffffff';
+    ctx.arc(p.x,p.y,r,0,Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+    if(rec){
+      ctx.font = '600 13px -apple-system,Segoe UI,Roboto,sans-serif';
+      ctx.fillStyle = '#f0d9ff';
+      ctx.fillText('★ '+rec.customName, p.x+r+6, p.y+4);
+    } else if(showLabels){
+      ctx.font = '12px -apple-system,Segoe UI,Roboto,sans-serif';
+      ctx.fillStyle = 'rgba(220,225,255,0.85)';
+      ctx.fillText(nm, p.x+r+5, p.y+4);
+    }
+  });
+}
+
+// ---------- pan / zoom interaction ----------
+let dragging = false, dragStart=null, dragged=false, lastPos=null;
+canvas.addEventListener('mousedown', e=>{ dragging=true; dragged=false; dragStart={x:e.clientX,y:e.clientY}; lastPos={x:e.clientX,y:e.clientY}; canvas.classList.add('dragging'); });
+window.addEventListener('mousemove', e=>{
+  if(!dragging) return;
+  const dx = e.clientX-lastPos.x, dy = e.clientY-lastPos.y;
+  if(Math.abs(e.clientX-dragStart.x)+Math.abs(e.clientY-dragStart.y) > 4) dragged = true;
+  view.ra -= (dx/view.scale/15);
+  view.ra = ((view.ra%24)+24)%24;
+  view.dec = Math.max(-89,Math.min(89, view.dec + dy/view.scale));
+  lastPos={x:e.clientX,y:e.clientY};
+  draw();
+});
+window.addEventListener('mouseup', e=>{
+  if(dragging && !dragged) handleClick(e.clientX,e.clientY);
+  dragging=false; canvas.classList.remove('dragging');
+});
+canvas.addEventListener('wheel', e=>{
+  e.preventDefault();
+  const before = unproject(e.clientX,e.clientY);
+  const factor = e.deltaY<0 ? 1.15 : 0.87;
+  view.scale = Math.max(2, Math.min(90, view.scale*factor));
+  const after = unproject(e.clientX,e.clientY);
+  view.ra += (before.ra-after.ra); view.ra=((view.ra%24)+24)%24;
+  view.dec += (before.dec-after.dec); view.dec=Math.max(-89,Math.min(89,view.dec));
+  draw();
+}, {passive:false});
+
+// touch
+let touchState = null;
+canvas.addEventListener('touchstart', e=>{
+  if(e.touches.length===1){
+    touchState = {type:'pan', x:e.touches[0].clientX, y:e.touches[0].clientY, moved:false, startX:e.touches[0].clientX, startY:e.touches[0].clientY};
+  } else if(e.touches.length===2){
+    const [a,b]=e.touches;
+    touchState = {type:'pinch', dist:Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY), midX:(a.clientX+b.clientX)/2, midY:(a.clientY+b.clientY)/2};
+  }
+}, {passive:true});
+canvas.addEventListener('touchmove', e=>{
+  e.preventDefault();
+  if(touchState && touchState.type==='pan' && e.touches.length===1){
+    const t=e.touches[0];
+    const dx=t.clientX-touchState.x, dy=t.clientY-touchState.y;
+    if(Math.abs(t.clientX-touchState.startX)+Math.abs(t.clientY-touchState.startY)>4) touchState.moved=true;
+    view.ra -= (dx/view.scale/15); view.ra=((view.ra%24)+24)%24;
+    view.dec = Math.max(-89,Math.min(89, view.dec + dy/view.scale));
+    touchState.x=t.clientX; touchState.y=t.clientY;
+    draw();
+  } else if(touchState && touchState.type==='pinch' && e.touches.length===2){
+    const [a,b]=e.touches;
+    const dist = Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);
+    const factor = dist/touchState.dist;
+    view.scale = Math.max(2, Math.min(90, view.scale*factor));
+    touchState.dist = dist;
+    draw();
+  }
+}, {passive:false});
+canvas.addEventListener('touchend', e=>{
+  if(touchState && touchState.type==='pan' && !touchState.moved){
+    handleClick(touchState.x, touchState.y);
+  }
+  touchState = null;
+});
+
+document.getElementById('zoomIn').onclick = ()=>{ view.scale=Math.min(90,view.scale*1.3); draw(); };
+document.getElementById('zoomOut').onclick = ()=>{ view.scale=Math.max(2,view.scale*0.75); draw(); };
+
+function handleClick(px,py){
+  let best=null, bestD=18;
+  STARS.forEach(st=>{
+    const p = project(st[1],st[2]);
+    const d = Math.hypot(p.x-px,p.y-py);
+    if(d<bestD){ bestD=d; best=st; }
+  });
+  if(best) openInfo(best);
+}
+
+// ---------- Info panel ----------
+const infoPanel = document.getElementById('infoPanel');
+const infoContent = document.getElementById('infoContent');
+document.getElementById('closeInfo').onclick = ()=> infoPanel.style.display='none';
+
+function openInfo(star){
+  const [nm,ra,dec,mag,dist,con] = star;
+  const rec = named[nm];
+  const raStr = Math.floor(ra)+'h '+Math.round((ra%1)*60)+'m';
+  const decStr = (dec>=0?'+':'')+dec.toFixed(2)+'°';
+  let html = '<h2>'+nm+'</h2><div class="con">'+con+'</div>';
+  html += '<table>'
+    +'<tr><td>Right Ascension</td><td>'+raStr+'</td></tr>'
+    +'<tr><td>Declination</td><td>'+decStr+'</td></tr>'
+    +'<tr><td>Magnitude</td><td>'+mag+'</td></tr>'
+    +'<tr><td>Distance</td><td>~'+dist.toLocaleString()+' light-years</td></tr>'
+    +'</table>';
+  if(rec){
+    html += '<div class="named-badge">Named <b>'+esc(rec.customName)+'</b>'
+      + (rec.dedicatedBy? ' — dedicated by <b>'+esc(rec.dedicatedBy)+'</b>':'')
+      + '<br><small>'+ new Date(rec.date).toLocaleDateString() +'</small></div>';
+    html += '<div class="row">'
+      + '<button class="btn primary" onclick="printCertificate(\''+encodeURIComponent(nm)+'\')">View Certificate</button>'
+      + '<button class="btn" onclick="startRename(\''+encodeURIComponent(nm)+'\')">Rename</button>'
+      + '<button class="btn" onclick="removeNaming(\''+encodeURIComponent(nm)+'\')">Remove</button>'
+      + '</div>';
+  } else {
+    html += '<div id="nameFormWrap"><button class="btn primary" style="width:100%" onclick="showNameForm(\''+encodeURIComponent(nm)+'\')">Name this star</button></div>';
+  }
+  infoContent.innerHTML = html;
+  infoContent.dataset.star = nm;
+  infoPanel.style.display = 'block';
+}
+
+function esc(s){ return (s||'').replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+function showNameForm(encName, existing){
+  const nm = decodeURIComponent(encName);
+  const ex = existing || {};
+  const wrap = document.getElementById('nameFormWrap');
+  wrap.innerHTML = ''
+    +'<input id="fCustomName" placeholder="Custom star name" value="'+esc(ex.customName||'')+'">'
+    +'<input id="fDedicated" placeholder="Dedicated by / to (optional)" value="'+esc(ex.dedicatedBy||'')+'">'
+    +'<textarea id="fMessage" placeholder="Personal message (optional)">'+esc(ex.message||'')+'</textarea>'
+    +'<button class="btn primary" style="width:100%" onclick="saveNaming(\''+encName+'\')">Save Naming</button>';
+}
+window.showNameForm = showNameForm;
+
+window.startRename = function(encName){
+  const nm = decodeURIComponent(encName);
+  openInfo(STARS.find(s=>s[0]===nm));
+  const html = infoContent.innerHTML.replace(/<div class="row">[\s\S]*<\/div>/, '<div id="nameFormWrap"></div>');
+  infoContent.innerHTML = html;
+  showNameForm(encName, named[nm]);
+};
+
+window.saveNaming = function(encName){
+  const nm = decodeURIComponent(encName);
+  const customName = document.getElementById('fCustomName').value.trim();
+  if(!customName){ toast('Please enter a name for the star'); return; }
+  named[nm] = {
+    customName,
+    dedicatedBy: document.getElementById('fDedicated').value.trim(),
+    message: document.getElementById('fMessage').value.trim(),
+    date: named[nm]&&named[nm].date ? named[nm].date : Date.now()
+  };
+  saveNamed(named);
+  toast('Star named!');
+  openInfo(STARS.find(s=>s[0]===nm));
+  draw();
+};
+
+window.removeNaming = function(encName){
+  const nm = decodeURIComponent(encName);
+  delete named[nm];
+  saveNamed(named);
+  toast('Naming removed');
+  openInfo(STARS.find(s=>s[0]===nm));
+  draw();
+  renderList();
+};
+
+// ---------- Certificate ----------
+window.printCertificate = function(encName){
+  const nm = decodeURIComponent(encName);
+  const star = STARS.find(s=>s[0]===nm);
+  const rec = named[nm];
+  if(!star||!rec) return;
+  const [_,ra,dec,mag,dist,con] = star;
+  const raStr = Math.floor(ra)+'h '+Math.round((ra%1)*60)+'m';
+  const decStr = (dec>=0?'+':'')+dec.toFixed(2)+'°';
+  const dateStr = new Date(rec.date).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'});
+  const w = window.open('', '_blank');
+  w.document.write(`<!DOCTYPE html><html><head><title>Certificate — ${esc(rec.customName)}</title>
+  <style>
+    body{font-family:Georgia,'Times New Roman',serif;background:#f7f2e7;margin:0;padding:40px;display:flex;justify-content:center;}
+    .cert{width:100%;max-width:760px;border:10px solid #c9a9e0;padding:6px;background:#fffdf7;}
+    .inner{border:2px solid #8a6bb0;padding:50px 40px;text-align:center;}
+    .kicker{letter-spacing:4px;color:#8a6bb0;font-size:13px;text-transform:uppercase;margin-bottom:18px;}
+    h1{font-size:34px;color:#2a1f42;margin:0 0 6px;}
+    .sub{font-size:16px;color:#555;margin-bottom:30px;}
+    .name{font-size:44px;color:#6b3fa0;font-style:italic;margin:20px 0;border-bottom:1px solid #d8c9ee;border-top:1px solid #d8c9ee;padding:16px 0;}
+    .details{text-align:left;max-width:480px;margin:26px auto;font-size:14px;color:#333;line-height:1.9;}
+    .details b{color:#6b3fa0;}
+    .msg{font-style:italic;color:#555;margin:24px auto;max-width:480px;font-size:14px;}
+    .foot{margin-top:30px;font-size:12px;color:#888;}
+    .disclaimer{margin-top:20px;font-size:10px;color:#999;max-width:520px;margin-left:auto;margin-right:auto;}
+    @media print{ body{background:#fff;padding:0;} }
+  </style></head><body>
+  <div class="cert"><div class="inner">
+    <div class="kicker">Certificate of Star Dedication</div>
+    <h1>StarNamer</h1>
+    <div class="sub">This certifies that the star officially catalogued as</div>
+    <div style="font-size:22px;color:#2a1f42;">${esc(nm)} <span style="color:#888;font-size:15px;">(${esc(con)})</span></div>
+    <div class="sub" style="margin-top:14px;">has been symbolically dedicated and named</div>
+    <div class="name">${esc(rec.customName)}</div>
+    ${rec.dedicatedBy ? `<div class="sub">Dedicated by <b>${esc(rec.dedicatedBy)}</b></div>` : ''}
+    ${rec.message ? `<div class="msg">&ldquo;${esc(rec.message)}&rdquo;</div>` : ''}
+    <div class="details">
+      <div><b>Right Ascension:</b> ${raStr}</div>
+      <div><b>Declination:</b> ${decStr}</div>
+      <div><b>Apparent Magnitude:</b> ${mag}</div>
+      <div><b>Distance:</b> ~${dist.toLocaleString()} light-years</div>
+      <div><b>Date of Dedication:</b> ${dateStr}</div>
+    </div>
+    <div class="foot">— StarNamer —</div>
+    <div class="disclaimer">This certificate is a symbolic and sentimental keepsake. It does not confer any official or legal naming rights; internationally recognized star designations are governed solely by the International Astronomical Union (IAU).</div>
+  </div></div>
+  </body></html>`);
+  w.document.close();
+  setTimeout(()=>w.print(), 400);
+};
+
+// ---------- My Named Stars list ----------
+const listPanel = document.getElementById('listPanel');
+document.getElementById('myStarsBtn').onclick = ()=>{ renderList(); listPanel.classList.add('open'); };
+document.getElementById('closeList').onclick = ()=> listPanel.classList.remove('open');
+
+function renderList(){
+  const keys = Object.keys(named);
+  const el = document.getElementById('listContent');
+  if(keys.length===0){ el.innerHTML='<div id="emptyList">You have not named any stars yet. Click a bright star on the map to get started.</div>'; return; }
+  el.innerHTML = keys.map(nm=>{
+    const rec = named[nm];
+    const enc = encodeURIComponent(nm);
+    return '<div class="starRow"><div class="cn">★ '+esc(rec.customName)+'</div><div class="rn">'+esc(nm)+'</div>'
+      +'<div class="actions">'
+      +'<button class="btn" onclick="focusStar(\''+enc+'\')">View on map</button>'
+      +'<button class="btn" onclick="printCertificate(\''+enc+'\')">Certificate</button>'
+      +'<button class="btn" onclick="removeNaming(\''+enc+'\');renderList();">Remove</button>'
+      +'</div></div>';
+  }).join('');
+}
+
+window.focusStar = function(encName){
+  const nm = decodeURIComponent(encName);
+  const star = STARS.find(s=>s[0]===nm);
+  if(!star) return;
+  view.ra = star[1]; view.dec = star[2]; view.scale = 30;
+  listPanel.classList.remove('open');
+  draw();
+  openInfo(star);
+};
+
+// ---------- Search ----------
+const searchInput = document.getElementById('searchInput');
+const searchResults = document.getElementById('searchResults');
+searchInput.addEventListener('input', ()=>{
+  const q = searchInput.value.trim().toLowerCase();
+  if(!q){ searchResults.style.display='none'; return; }
+  const matches = STARS.filter(s=> s[0].toLowerCase().includes(q) || s[5].toLowerCase().includes(q)).slice(0,8);
+  if(matches.length===0){ searchResults.style.display='none'; return; }
+  searchResults.innerHTML = matches.map(s=>'<div onclick="focusStar(\''+encodeURIComponent(s[0])+'\');document.getElementById(\'searchResults\').style.display=\'none\';document.getElementById(\'searchInput\').value=\'\';">'+s[0]+' <span style="color:#a89fcf;">— '+s[5]+'</span></div>').join('');
+  searchResults.style.display='block';
+});
+document.addEventListener('click', e=>{ if(!e.target.closest('#searchWrap')) searchResults.style.display='none'; });
+
+// ---------- Export / Import ----------
+document.getElementById('exportBtn').onclick = ()=>{
+  const blob = new Blob([JSON.stringify(named,null,2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'my-named-stars.json';
+  a.click();
+};
+document.getElementById('importBtn').onclick = ()=> document.getElementById('importFile').click();
+document.getElementById('importFile').addEventListener('change', e=>{
+  const file = e.target.files[0]; if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    try{
+      const data = JSON.parse(reader.result);
+      named = Object.assign({}, named, data);
+      saveNamed(named);
+      renderList(); draw();
+      toast('Named stars imported');
+    }catch(err){ toast('Could not read that file'); }
+  };
+  reader.readAsText(file);
+});
+
+// ---------- Help modal ----------
+const overlay = document.getElementById('overlay');
+const helpModal = document.getElementById('helpModal');
+function openHelp(){ overlay.style.display='flex'; helpModal.style.display='flex'; }
+function closeHelp(){ overlay.style.display='none'; helpModal.style.display='none'; }
+document.getElementById('helpBtn').onclick = openHelp;
+document.getElementById('closeHelp').onclick = closeHelp;
+overlay.onclick = closeHelp;
+
+// ---------- Toast ----------
+let toastTimer;
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>t.classList.remove('show'), 2200);
+}
+
+// ---------- init ----------
+resize();
+if(!localStorage.getItem('starnamer_seen')){
+  localStorage.setItem('starnamer_seen','1');
+  openHelp();
+}
+</script>
+</body>
+</html>
